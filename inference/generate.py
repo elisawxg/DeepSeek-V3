@@ -1,7 +1,7 @@
 import os
 import json
 from argparse import ArgumentParser
-from typing import List
+from typing import List, Dict
 
 import torch
 import torch.distributed as dist
@@ -9,6 +9,14 @@ from transformers import AutoTokenizer
 from safetensors.torch import load_model
 
 from model import Transformer, ModelArgs
+
+# Predefined system prompts for specific service industries
+DOMAIN_TEMPLATES: Dict[str, str] = {
+    "consulting": "You are an expert management consultant providing strategic advice.",
+    "finance": "You are a professional financial advisor offering detailed market and financial insights.",
+    "law": "You are a legal expert providing precise and reliable legal guidance.",
+    "general": ""
+}
 
 
 def sample(logits, temperature: float = 1.0):
@@ -85,6 +93,7 @@ def main(
     interactive: bool = True,
     max_new_tokens: int = 100,
     temperature: float = 1.0,
+    domain: str = "general",
 ) -> None:
     """
     Main function to load the model and perform interactive or batch text generation.
@@ -96,6 +105,7 @@ def main(
         interactive (bool, optional): Whether to run in interactive mode. Defaults to True.
         max_new_tokens (int, optional): Maximum number of new tokens to generate. Defaults to 100.
         temperature (float, optional): Temperature for sampling. Defaults to 1.0.
+        domain (str, optional): Service industry domain to specialize responses for. Defaults to "general".
     """
     world_size = int(os.getenv("WORLD_SIZE", "1"))
     rank = int(os.getenv("RANK", "0"))
@@ -118,8 +128,12 @@ def main(
     tokenizer.decode(generate(model, [tokenizer.encode("DeepSeek")], 2, -1, 1.)[0])
     load_model(model, os.path.join(ckpt_path, f"model{rank}-mp{world_size}.safetensors"))
 
+    system_message = DOMAIN_TEMPLATES.get(domain, "")
+
     if interactive:
         messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
         while True:
             if world_size == 1:
                 prompt = input(">>> ")
@@ -146,7 +160,13 @@ def main(
         with open(input_file) as f:
             prompts = [line.strip() for line in f.readlines()]
         assert len(prompts) <= args.max_batch_size, f"Number of prompts exceeds maximum batch size ({args.max_batch_size})"
-        prompt_tokens = [tokenizer.apply_chat_template([{"role": "user", "content": prompt}], add_generation_prompt=True) for prompt in prompts]
+        prompt_tokens = []
+        for prompt in prompts:
+            messages = []
+            if system_message:
+                messages.append({"role": "system", "content": system_message})
+            messages.append({"role": "user", "content": prompt})
+            prompt_tokens.append(tokenizer.apply_chat_template(messages, add_generation_prompt=True))
         completion_tokens = generate(model, prompt_tokens, max_new_tokens, tokenizer.eos_token_id, temperature)
         completions = tokenizer.batch_decode(completion_tokens, skip_special_tokens=True)
         for prompt, completion in zip(prompts, completions):
@@ -180,6 +200,21 @@ if __name__ == "__main__":
     parser.add_argument("--interactive", action="store_true")
     parser.add_argument("--max-new-tokens", type=int, default=200)
     parser.add_argument("--temperature", type=float, default=0.2)
+    parser.add_argument(
+        "--domain",
+        type=str,
+        default="general",
+        choices=list(DOMAIN_TEMPLATES.keys()),
+        help="Specialize responses for a service industry domain",
+    )
     args = parser.parse_args()
     assert args.input_file or args.interactive, "Either input-file or interactive mode must be specified"
-    main(args.ckpt_path, args.config, args.input_file, args.interactive, args.max_new_tokens, args.temperature)
+    main(
+        args.ckpt_path,
+        args.config,
+        args.input_file,
+        args.interactive,
+        args.max_new_tokens,
+        args.temperature,
+        args.domain,
+    )
