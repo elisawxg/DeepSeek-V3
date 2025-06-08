@@ -345,6 +345,20 @@ In collaboration with the AMD team, we have achieved Day-One support for AMD GPU
 The [MindIE](https://www.hiascend.com/en/software/mindie) framework from the Huawei Ascend community has successfully adapted the BF16 version of DeepSeek-V3. For step-by-step guidance on Ascend NPUs, please follow the [instructions here](https://modelers.cn/models/MindIE/deepseekv3).
 
 
+### 6.9 Fine-Tuning to Minimize Hallucination
+
+To reduce hallucination, we provide a simple fine-tuning script in `training/finetune_truthfulqa.py` that uses the TruthfulQA dataset. The script applies LoRA-based supervised fine-tuning on verified question-answer pairs.
+
+Example usage:
+
+```bash
+python training/finetune_truthfulqa.py --model /path/to/DeepSeek-V3-Demo 
+       --output-dir /path/to/output --epochs 3 --batch-size 2
+```
+
+Install dependencies from `training/requirements.txt` before running the script.
+
+
 ## 7. License
 This code repository is licensed under [the MIT License](LICENSE-CODE). The use of DeepSeek-V3 Base/Chat models is subject to [the Model License](LICENSE-MODEL). DeepSeek-V3 series (including Base and Chat) supports commercial use.
 
